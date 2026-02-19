@@ -1,0 +1,262 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// المحافظات/الفروع
+model Province {
+  id        String    @id @default(cuid())
+  name      String    @unique // اسم المحافظة
+  code      String    @unique // رمز المحافظة
+  users     User[]
+  requests  Request[]
+  createdAt DateTime  @default(now())
+}
+
+// المستخدمين
+model User {
+  id         String      @id @default(cuid())
+  name       String
+  email      String      @unique
+  phone      String
+  password   String
+  role       Role        @default(CLIENT)
+  provinceId String?
+  province   Province?   @relation(fields: [provinceId], references: [id])
+  isActive   Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+  requests   Request[]
+  actionLogs ActionLog[]
+  notifications Notification[]
+}
+
+enum Role {
+  CLIENT           // عميل / مالك منشأة
+  BRANCH_MANAGER   // مدير فرع في المحافظة
+  FACILITIES_MGR   // مدير المنشآت (مركزي)
+  REVIEW_MGR       // مدير المراجعة وقطع التراخيص
+  GENERAL_MGR      // مدير الإدارة العامة
+  DEPUTY_MINISTER  // وكيل الوزارة
+}
+
+// أنواع الطلبات
+enum RequestType {
+  FURNISHING // تأثيث
+  OPERATION  // تشغيل
+  RENEWAL    // تجديد
+}
+
+// أنواع المنشآت الصحية
+enum FacilityType {
+  SPECIALIZED_HOSPITAL  // مستشفى تخصصي
+  GENERAL_HOSPITAL      // مستشفى عام
+  SPECIALIZED_CENTER    // مركز تخصصي
+  POLYCLINIC           // مستوصف
+  CLINIC               // عيادة
+  LABORATORY           // مختبر
+  DIAGNOSTIC_CENTER    // مركز تشخيصي
+  DENTAL_CLINIC        // عيادة أسنان
+}
+
+// حالات الطلب
+enum RequestStatus {
+  PENDING_BRANCH     // معلق لدى مدير الفرع
+  PENDING_FACILITIES // معلق لدى مدير المنشآت
+  PENDING_REVIEW     // معلق لدى المراجعة
+  PENDING_DEPUTY     // معلق لدى الوكيل
+  PENDING_PAYMENT    // في انتظار السداد
+  COMPLETED          // مكتمل
+  REJECTED           // مرفوض
+}
+
+// مستويات الموافقة
+enum ApprovalLevel {
+  BRANCH     // مستوى الفرع
+  FACILITIES // مستوى المنشآت
+  REVIEW     // مستوى المراجعة
+  DEPUTY     // مستوى الوكيل
+  COMPLETED  // مكتمل
+}
+
+// أنواع المستندات المطلوبة
+enum DocumentType {
+  // متطلبات التأثيث
+  SKETCH                // الكروكي الخاص بالمنشأة
+  OWNER_ID              // هوية المالك
+  
+  // متطلبات التشغيل
+  EQUIPMENT_COMPLIANCE  // مطابقة التجهيزات للشروط
+  TAX_CARD              // البطاقة الضريبية
+  ZAKAT_CARD            // البطاقة الزكوية
+  STAFF_CONTRACTS       // عقود الكادر
+  OWNERSHIP_CONTRACT    // عقد ملكية المبنى أو الإيجار
+  
+  // متطلبات التجديد
+  INSPECTION_REPORT     // تقرير لجنة المعاينة
+  
+  // مستندات عامة
+  COMMERCIAL_REG        // السجل التجاري
+  HEALTH_CERT           // الشهادة الصحية
+  OTHER                 // أخرى
+}
+
+// الطلبات
+model Request {
+  id              String        @id @default(cuid())
+  requestNumber   String        @unique // رقم المعاملة
+  type            RequestType
+  facilityName    String // اسم المنشأة
+  facilityType    FacilityType // نوع المنشأة (مستشفى، مركز، عيادة...)
+  ownerName       String // اسم المالك
+  ownerPhone      String // هاتف المالك
+  ownerEmail      String? // بريد المالك
+  ownerAddress    String? // عنوان المالك
+  facilityAddress String // عنوان المنشأة
+  provinceId      String
+  province        Province      @relation(fields: [provinceId], references: [id])
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  status          RequestStatus @default(PENDING_BRANCH)
+  currentLevel    ApprovalLevel @default(BRANCH)
+
+  // المرفقات
+  attachments     Attachment[]
+
+  // بيانات الموافقات
+  branchApproved    Boolean   @default(false)
+  branchApprovedBy  String?
+  branchApprovedAt  DateTime?
+  branchNotes       String?
+
+  facilitiesApproved    Boolean   @default(false)
+  facilitiesApprovedBy  String?
+  facilitiesApprovedAt  DateTime?
+  facilitiesNotes       String?
+
+  reviewApproved    Boolean   @default(false)
+  reviewApprovedBy  String?
+  reviewApprovedAt  DateTime?
+  reviewNotes       String?
+
+  deputyApproved    Boolean   @default(false)
+  deputyApprovedBy  String?
+  deputyApprovedAt  DateTime?
+  deputyNotes       String?
+
+  // بيانات الحافظة والرسوم
+  receiptNumber   String? // رقم الحافظة
+  receiptAmount   Float? // المبلغ
+  receiptIssuedAt DateTime?
+  receiptIssuedBy String?
+
+  // بيانات الدفع
+  paymentReference  String? // مرجع الدفع
+  paymentVerified   Boolean @default(false)
+  paymentVerifiedBy String?
+  paidAt            DateTime?
+
+  // الترخيص
+  licenseNumber   String? // رقم الترخيص
+  licenseIssuedAt DateTime?
+  licenseIssuedBy String?
+  licenseExpiryDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  actionLogs ActionLog[]
+  fees       RequestFee[]
+}
+
+// المرفقات
+model Attachment {
+  id           String       @id @default(cuid())
+  requestId    String
+  request      Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  documentType DocumentType // نوع المستند
+  documentName String       // اسم المستند
+  fileName     String       // اسم الملف
+  filePath     String       // مسار الملف
+  fileSize     Int?         // حجم الملف
+  mimeType     String?      // نوع الملف
+  isVerified   Boolean      @default(false) // تم التحقق منه
+  verifiedBy   String?      // تم التحقق بواسطة
+  verifiedAt   DateTime?    // تاريخ التحقق
+  notes        String?      // ملاحظات
+  uploadedAt   DateTime     @default(now())
+  
+  @@index([requestId])
+}
+
+// أنواع الرسوم
+model FeeType {
+  id          String      @id @default(cuid())
+  name        String      // اسم الرسم
+  code        String      @unique // رمز الرسم
+  amount      Float       // المبلغ
+  description String?     // الوصف
+  isActive    Boolean     @default(true)
+  requestFees RequestFee[]
+  createdAt   DateTime    @default(now())
+}
+
+// رسوم الطلبات
+model RequestFee {
+  id         String   @id @default(cuid())
+  requestId  String
+  request    Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  feeTypeId  String
+  feeType    FeeType  @relation(fields: [feeTypeId], references: [id])
+  amount     Float    // المبلغ (قد يختلف عن المبلغ الأساسي)
+  isPaid     Boolean  @default(false)
+  paidAt     DateTime?
+  
+  @@index([requestId])
+}
+
+// سجل الإجراءات
+model ActionLog {
+  id          String   @id @default(cuid())
+  requestId   String
+  request     Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  action      String
+  description String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+  
+  @@index([requestId])
+}
+
+// الإشعارات
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  message    String
+  type       String   // نوع الإشعار (request_update, payment, etc.)
+  requestId  String?  // معرف الطلب المرتبط
+  isRead     Boolean  @default(false)
+  sentViaSms Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  
+  @@index([userId])
+  @@index([requestId])
+}
+
+// إعدادات النظام
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  description String?
+  updatedAt DateTime @updatedAt
+}
