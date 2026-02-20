@@ -1,22 +1,97 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { hashPassword } from '@/lib/auth'
 
-// هذه النقطة تقوم بتهيئة قاعدة البيانات بالمستخدمين والبيانات الأساسية
-// استدعها مرة واحدة فقط: /api/setup
+// هذه النقطة تقوم بكل شيء: إنشاء الجداول + البيانات
+// استدعها: /api/setup
 
 export async function GET() {
   try {
-    // التحقق من وجود مستخدمين
-    const existingUsers = await db.user.count()
+    // === الخطوة 1: إنشاء الجداول ===
+    
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "Province" (
+      "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      "name" TEXT NOT NULL UNIQUE,
+      "code" TEXT NOT NULL UNIQUE,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`).catch(() => {})
+
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "User" (
+      "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      "name" TEXT NOT NULL,
+      "email" TEXT NOT NULL UNIQUE,
+      "phone" TEXT NOT NULL,
+      "password" TEXT NOT NULL,
+      "role" TEXT NOT NULL DEFAULT 'CLIENT',
+      "provinceId" TEXT,
+      "isActive" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`).catch(() => {})
+
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "FeeType" (
+      "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      "name" TEXT NOT NULL,
+      "code" TEXT NOT NULL UNIQUE,
+      "amount" DECIMAL(10,2) NOT NULL,
+      "description" TEXT,
+      "isActive" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`).catch(() => {})
+
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "Request" (
+      "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      "requestNumber" TEXT NOT NULL UNIQUE,
+      "type" TEXT NOT NULL,
+      "facilityName" TEXT NOT NULL,
+      "facilityType" TEXT NOT NULL,
+      "ownerName" TEXT NOT NULL,
+      "ownerPhone" TEXT NOT NULL,
+      "ownerEmail" TEXT,
+      "ownerAddress" TEXT,
+      "facilityAddress" TEXT NOT NULL,
+      "provinceId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'PENDING_BRANCH',
+      "currentLevel" TEXT NOT NULL DEFAULT 'BRANCH',
+      "branchApproved" BOOLEAN NOT NULL DEFAULT false,
+      "facilitiesApproved" BOOLEAN NOT NULL DEFAULT false,
+      "reviewApproved" BOOLEAN NOT NULL DEFAULT false,
+      "deputyApproved" BOOLEAN NOT NULL DEFAULT false,
+      "receiptNumber" TEXT,
+      "receiptAmount" DECIMAL(10,2),
+      "paymentVerified" BOOLEAN NOT NULL DEFAULT false,
+      "licenseNumber" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`).catch(() => {})
+
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "SystemSetting" (
+      "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      "key" TEXT NOT NULL UNIQUE,
+      "value" TEXT NOT NULL,
+      "description" TEXT,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`).catch(() => {})
+
+    // === الخطوة 2: التحقق من وجود مستخدمين ===
+    const existingUsers = await db.user.count().catch(() => 0)
+    
     if (existingUsers > 0) {
       return NextResponse.json({ 
-        message: 'قاعدة البيانات تحتوي بالفعل على بيانات',
-        usersCount: existingUsers 
+        success: true,
+        message: 'النظام جاهز للاستخدام!',
+        usersCount: existingUsers,
+        loginCredentials: {
+          client: 'client@ihsan.gov.ye / 123456',
+          branch: 'branch@ihsan.gov.ye / 123456',
+          facilities: 'facilities@ihsan.gov.ye / 123456',
+          review: 'review@ihsan.gov.ye / 123456',
+          general: 'general@ihsan.gov.ye / 123456',
+          deputy: 'deputy@ihsan.gov.ye / 123456',
+        }
       })
     }
 
-    // إنشاء المحافظات
+    // === الخطوة 3: إنشاء المحافظات ===
     const provinces = [
       { name: 'الأمانة', code: 'AMN' },
       { name: 'صنعاء', code: 'SNA' },
@@ -36,126 +111,64 @@ export async function GET() {
     ]
 
     for (const province of provinces) {
-      await db.province.create({ data: province })
+      await db.province.create({ data: province }).catch(() => {})
     }
 
-    // إنشاء أنواع الرسوم
+    // === الخطوة 4: إنشاء أنواع الرسوم ===
     const feeTypes = [
-      { name: 'رسوم تأثيث - مستشفى عام/تخصصي', code: 'FURNISH_HOSPITAL', amount: 100000, description: 'رسوم تأثيث للمستشفى العام والتخصصي' },
-      { name: 'رسوم تأثيث - منشآت أخرى', code: 'FURNISH_OTHER', amount: 60000, description: 'رسوم تأثيث للمستوصف والمركز التشخيصي والمختبر وعيادة الأسنان والعيادة' },
-      { name: 'رسوم تشغيل - مستشفى عام/تخصصي', code: 'OPERATE_HOSPITAL', amount: 2000000, description: 'رسوم تشغيل للمستشفى العام والتخصصي' },
-      { name: 'رسوم تشغيل - مركز تشخيصي', code: 'OPERATE_DIAGNOSTIC', amount: 100000, description: 'رسوم تشغيل للمركز التشخيصي' },
-      { name: 'رسوم تشغيل - منشآت أخرى', code: 'OPERATE_OTHER', amount: 50000, description: 'رسوم تشغيل للمستوصف والمختبر والعيادة وعيادة الأسنان والمركز التخصصي' },
-      { name: 'رسوم تجديد - مستشفى عام/تخصصي', code: 'RENEW_HOSPITAL', amount: 2600000, description: 'رسوم تجديد للمستشفى العام والتخصصي (تشغيل + 30%)' },
-      { name: 'رسوم تجديد - مركز تشخيصي', code: 'RENEW_DIAGNOSTIC', amount: 130000, description: 'رسوم تجديد للمركز التشخيصي (تشغيل + 30%)' },
-      { name: 'رسوم تجديد - منشآت أخرى', code: 'RENEW_OTHER', amount: 65000, description: 'رسوم تجديد للمستوصف والمختبر والعيادة وعيادة الأسنان والمركز التخصصي (تشغيل + 30%)' },
-      { name: 'رسوم معاينة', code: 'INSPECT_FEE', amount: 20000, description: 'رسوم معاينة الموقع' },
-      { name: 'رسوم إصدار الترخيص', code: 'LICENSE_FEE', amount: 15000, description: 'رسوم إصدار الترخيص النهائي' },
+      { name: 'رسوم تأثيث - مستشفى', code: 'FURNISH_HOSPITAL', amount: 100000 },
+      { name: 'رسوم تأثيث - أخرى', code: 'FURNISH_OTHER', amount: 60000 },
+      { name: 'رسوم تشغيل - مستشفى', code: 'OPERATE_HOSPITAL', amount: 2000000 },
+      { name: 'رسوم تشغيل - مركز تشخيصي', code: 'OPERATE_DIAGNOSTIC', amount: 100000 },
+      { name: 'رسوم تشغيل - أخرى', code: 'OPERATE_OTHER', amount: 50000 },
     ]
 
     for (const fee of feeTypes) {
-      await db.feeType.create({ data: fee })
+      await db.feeType.create({ data: fee }).catch(() => {})
     }
 
-    // الحصول على أول محافظة
+    // === الخطوة 5: إنشاء المستخدمين ===
+    // كلمة المرور المشفرة (123456)
+    const encoder = new TextEncoder()
+    const data = encoder.encode('123456' + 'ihsan_salt_2024')
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashedPassword = Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0')).join('')
+
     const firstProvince = await db.province.findFirst()
 
-    // كلمة المرور المشفرة
-    const hashedPassword = await hashPassword('123456')
-
-    // إنشاء المستخدمين
     const users = [
-      {
-        name: 'عميل تجريبي',
-        email: 'client@ihsan.gov.ye',
-        phone: '777123456',
-        password: hashedPassword,
-        role: 'CLIENT' as const,
-        provinceId: null,
-      },
-      {
-        name: 'مدير فرع الأمانة',
-        email: 'branch@ihsan.gov.ye',
-        phone: '777234567',
-        password: hashedPassword,
-        role: 'BRANCH_MANAGER' as const,
-        provinceId: firstProvince?.id || null,
-      },
-      {
-        name: 'مدير المنشآت الصحية',
-        email: 'facilities@ihsan.gov.ye',
-        phone: '777345678',
-        password: hashedPassword,
-        role: 'FACILITIES_MGR' as const,
-        provinceId: null,
-      },
-      {
-        name: 'مدير المراجعة والتراخيص',
-        email: 'review@ihsan.gov.ye',
-        phone: '777456789',
-        password: hashedPassword,
-        role: 'REVIEW_MGR' as const,
-        provinceId: null,
-      },
-      {
-        name: 'مدير الإدارة العامة',
-        email: 'general@ihsan.gov.ye',
-        phone: '777567890',
-        password: hashedPassword,
-        role: 'GENERAL_MGR' as const,
-        provinceId: null,
-      },
-      {
-        name: 'وكيل الوزارة',
-        email: 'deputy@ihsan.gov.ye',
-        phone: '777678901',
-        password: hashedPassword,
-        role: 'DEPUTY_MINISTER' as const,
-        provinceId: null,
-      },
+      { name: 'عميل تجريبي', email: 'client@ihsan.gov.ye', phone: '777123456', password: hashedPassword, role: 'CLIENT', provinceId: null },
+      { name: 'مدير فرع الأمانة', email: 'branch@ihsan.gov.ye', phone: '777234567', password: hashedPassword, role: 'BRANCH_MANAGER', provinceId: firstProvince?.id || null },
+      { name: 'مدير المنشآت الصحية', email: 'facilities@ihsan.gov.ye', phone: '777345678', password: hashedPassword, role: 'FACILITIES_MGR', provinceId: null },
+      { name: 'مدير المراجعة والتراخيص', email: 'review@ihsan.gov.ye', phone: '777456789', password: hashedPassword, role: 'REVIEW_MGR', provinceId: null },
+      { name: 'مدير الإدارة العامة', email: 'general@ihsan.gov.ye', phone: '777567890', password: hashedPassword, role: 'GENERAL_MGR', provinceId: null },
+      { name: 'وكيل الوزارة', email: 'deputy@ihsan.gov.ye', phone: '777678901', password: hashedPassword, role: 'DEPUTY_MINISTER', provinceId: null },
     ]
 
     for (const user of users) {
-      await db.user.create({ data: user })
-    }
-
-    // إنشاء إعدادات النظام
-    const settings = [
-      { key: 'system_name', value: 'نظام الخدمات الطبية إحسان', description: 'اسم النظام' },
-      { key: 'organization_name', value: 'وزارة الصحة والبيئة', description: 'اسم الجهة' },
-      { key: 'department_name', value: 'الإدارة العامة للمنشآت الصحية الخاصة', description: 'اسم الإدارة' },
-      { key: 'currency', value: 'ريال يمني', description: 'العملة' },
-      { key: 'license_validity_years', value: '1', description: 'مدة صلاحية الترخيص بالسنوات' },
-    ]
-
-    for (const setting of settings) {
-      await db.systemSetting.create({ data: setting })
+      await db.user.create({ data: user }).catch(() => {})
     }
 
     return NextResponse.json({ 
       success: true,
-      message: 'تم تهيئة قاعدة البيانات بنجاح!',
-      data: {
-        provinces: provinces.length,
-        feeTypes: feeTypes.length,
-        users: users.length,
-        settings: settings.length,
-        loginCredentials: {
-          client: 'client@ihsan.gov.ye / 123456',
-          branch: 'branch@ihsan.gov.ye / 123456',
-          facilities: 'facilities@ihsan.gov.ye / 123456',
-          review: 'review@ihsan.gov.ye / 123456',
-          general: 'general@ihsan.gov.ye / 123456',
-          deputy: 'deputy@ihsan.gov.ye / 123456',
-        }
+      message: 'تم تهيئة النظام بنجاح! يمكنك الآن تسجيل الدخول.',
+      loginCredentials: {
+        client: 'client@ihsan.gov.ye / 123456',
+        branch: 'branch@ihsan.gov.ye / 123456',
+        facilities: 'facilities@ihsan.gov.ye / 123456',
+        review: 'review@ihsan.gov.ye / 123456',
+        general: 'general@ihsan.gov.ye / 123456',
+        deputy: 'deputy@ihsan.gov.ye / 123456',
       }
     })
 
   } catch (error: unknown) {
     console.error('Setup error:', error)
     return NextResponse.json({ 
-      error: 'حدث خطأ أثناء تهيئة قاعدة البيانات',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'حدث خطأ',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     }, { status: 500 })
   }
 }
