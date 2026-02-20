@@ -635,7 +635,7 @@ export default function Home() {
               </div>
               <div className="text-center">
                 <h1 className="text-2xl font-bold text-emerald-700">وزارة الصحة والبيئة</h1>
-                <p className="text-sm text-emerald-600">نظام ترخيص المنشآت الصحية الخاصة</p>
+                <p className="text-sm text-emerald-600">الخدمات الطبية إحسان</p>
                 <p className="text-xs text-gray-500 mt-1">الإدارة العامة للمنشآت الصحية الخاصة</p>
               </div>
             </div>
