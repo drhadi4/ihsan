@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // المحافظات/الفروع
@@ -133,26 +134,26 @@ model Request {
   branchApproved    Boolean   @default(false)
   branchApprovedBy  String?
   branchApprovedAt  DateTime?
-  branchNotes       String?
+  branchNotes       String?   @db.Text
 
   facilitiesApproved    Boolean   @default(false)
   facilitiesApprovedBy  String?
   facilitiesApprovedAt  DateTime?
-  facilitiesNotes       String?
+  facilitiesNotes       String?   @db.Text
 
   reviewApproved    Boolean   @default(false)
   reviewApprovedBy  String?
   reviewApprovedAt  DateTime?
-  reviewNotes       String?
+  reviewNotes       String?   @db.Text
 
   deputyApproved    Boolean   @default(false)
   deputyApprovedBy  String?
   deputyApprovedAt  DateTime?
-  deputyNotes       String?
+  deputyNotes       String?   @db.Text
 
   // بيانات الحافظة والرسوم
   receiptNumber   String? // رقم الحافظة
-  receiptAmount   Float? // المبلغ
+  receiptAmount   Decimal? @db.Decimal(10,2) // المبلغ
   receiptIssuedAt DateTime?
   receiptIssuedBy String?
 
@@ -189,7 +190,7 @@ model Attachment {
   isVerified   Boolean      @default(false) // تم التحقق منه
   verifiedBy   String?      // تم التحقق بواسطة
   verifiedAt   DateTime?    // تاريخ التحقق
-  notes        String?      // ملاحظات
+  notes        String?      @db.Text // ملاحظات
   uploadedAt   DateTime     @default(now())
   
   @@index([requestId])
@@ -200,8 +201,8 @@ model FeeType {
   id          String      @id @default(cuid())
   name        String      // اسم الرسم
   code        String      @unique // رمز الرسم
-  amount      Float       // المبلغ
-  description String?     // الوصف
+  amount      Decimal     @db.Decimal(10,2) // المبلغ
+  description String?     @db.Text // الوصف
   isActive    Boolean     @default(true)
   requestFees RequestFee[]
   createdAt   DateTime    @default(now())
@@ -214,7 +215,7 @@ model RequestFee {
   request    Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
   feeTypeId  String
   feeType    FeeType  @relation(fields: [feeTypeId], references: [id])
-  amount     Float    // المبلغ (قد يختلف عن المبلغ الأساسي)
+  amount     Decimal  @db.Decimal(10,2) // المبلغ (قد يختلف عن المبلغ الأساسي)
   isPaid     Boolean  @default(false)
   paidAt     DateTime?
   
@@ -227,7 +228,7 @@ model ActionLog {
   requestId   String
   request     Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
   action      String
-  description String
+  description String   @db.Text
   userId      String
   user        User     @relation(fields: [userId], references: [id])
   createdAt   DateTime @default(now())
@@ -241,7 +242,7 @@ model Notification {
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title      String
-  message    String
+  message    String   @db.Text
   type       String   // نوع الإشعار (request_update, payment, etc.)
   requestId  String?  // معرف الطلب المرتبط
   isRead     Boolean  @default(false)
